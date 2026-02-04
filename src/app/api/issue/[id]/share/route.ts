@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createSupabaseRouteClient } from '@/lib/supabase/route';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 const schema = z.object({
   is_public: z.boolean()
@@ -34,6 +35,16 @@ export async function PATCH(
 
   if (error || !data) {
     return NextResponse.json({ error: 'Unable to update share status.' }, { status: 500 });
+  }
+
+  if (payload.is_public) {
+    const admin = createSupabaseAdminClient();
+    await admin.from('events').insert({
+      user_id: auth.user.id,
+      issue_id: params.id,
+      type: 'issue_shared',
+      metadata: { is_public: true }
+    });
   }
 
   return NextResponse.json(data);

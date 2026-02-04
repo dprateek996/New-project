@@ -23,7 +23,8 @@ export default async function AppPage() {
   }));
 
   return (
-    <main className="relative min-h-screen bg-obsidian-950 px-6 py-12">
+    <main className="relative min-h-screen px-6 py-12">
+      <div className="grid-overlay" />
       <div className="grain-overlay" />
       <div className="relative z-10">
         <IssueStudio

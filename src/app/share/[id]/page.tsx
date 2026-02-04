@@ -34,26 +34,31 @@ export default async function SharePage({ params }: { params: { id: string } }) 
   }
 
   return (
-    <main className="relative min-h-screen bg-obsidian-950 px-6 py-12">
+    <main className="relative min-h-screen px-6 py-12">
+      <div className="grid-overlay" />
       <div className="grain-overlay" />
       <div className="relative z-10 mx-auto max-w-4xl">
         <div className="card-glass rounded-3xl p-6">
-          <p className="mono text-xs uppercase tracking-[0.3em] text-white/40">PUBLIC ISSUE</p>
-          <h1 className="mt-3 font-serif text-3xl font-semibold">{issue.title}</h1>
-          <p className="mt-2 text-sm text-white/60">{issue.theme} theme · Published Issue</p>
-          {pdfSignedUrl && (
-            <a
-              href={pdfSignedUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-6 inline-flex rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/70 transition hover:border-white/60"
-            >
-              Download PDF
-            </a>
-          )}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="mono text-xs uppercase tracking-[0.3em] text-white/40">PUBLIC ISSUE</p>
+              <h1 className="mt-3 font-serif text-3xl font-semibold">{issue.title}</h1>
+              <p className="mt-2 text-sm text-white/60">{issue.theme} theme · Published Issue</p>
+            </div>
+            {pdfSignedUrl && (
+              <a
+                href={pdfSignedUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/70 transition hover:border-white/60"
+              >
+                Download PDF
+              </a>
+            )}
+          </div>
         </div>
 
-        <div className="mt-10 rounded-3xl bg-paper-50 p-2 text-obsidian-950">
+        <div className="mt-10 rounded-3xl bg-paper-50 p-2 text-obsidian-950 shadow-xl">
           {htmlSignedUrl ? (
             <iframe
               src={htmlSignedUrl}

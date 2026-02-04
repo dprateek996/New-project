@@ -55,6 +55,17 @@ app.post('/jobs/issue', async (req, res) => {
   } catch (error) {
     console.error(error);
     await supabase.from('issues').update({ status: 'failed' }).eq('id', payload.issueId);
+    const { data: issueRow } = await supabase
+      .from('issues')
+      .select('user_id')
+      .eq('id', payload.issueId)
+      .maybeSingle();
+    await supabase.from('events').insert({
+      user_id: issueRow?.user_id ?? null,
+      issue_id: payload.issueId,
+      type: 'issue_failed',
+      metadata: { message: error instanceof Error ? error.message : 'Unknown error' }
+    });
     return res.status(500).json({ error: 'Processing failed' });
   }
 });
@@ -68,7 +79,11 @@ async function processIssue(issueId) {
 
   if (!issue) throw new Error('Issue not found');
 
-  await supabase.from('issues').update({ status: 'processing' }).eq('id', issueId);
+  const { error: processingError } = await supabase
+    .from('issues')
+    .update({ status: 'processing' })
+    .eq('id', issueId);
+  if (processingError) throw new Error(`Unable to update status: ${processingError.message}`);
 
   const { data: links } = await supabase
     .from('links')
@@ -91,7 +106,20 @@ async function processIssue(issueId) {
         sourceUrl: link.url
       };
       chapters.push(fallback);
-      await supabase.from('links').update({ parsed_json: { title: fallback.title, blocked: true } }).eq('id', link.id);
+      await supabase
+        .from('links')
+        .update({
+          parsed_json: {
+            title: fallback.title,
+            blocked: true,
+            wordCount: fallback.wordCount,
+            imageCount: fallback.imageCount,
+            codeCount: fallback.codeCount,
+            tweetCount: fallback.tweetCount,
+            sourceUrl: fallback.sourceUrl
+          }
+        })
+        .eq('id', link.id);
       continue;
     }
     try {
@@ -99,7 +127,16 @@ async function processIssue(issueId) {
       chapters.push(chapter);
       await supabase
         .from('links')
-        .update({ parsed_json: { title: chapter.title, wordCount: chapter.wordCount } })
+        .update({
+          parsed_json: {
+            title: chapter.title,
+            wordCount: chapter.wordCount,
+            imageCount: chapter.imageCount,
+            codeCount: chapter.codeCount,
+            tweetCount: chapter.tweetCount,
+            sourceUrl: chapter.sourceUrl
+          }
+        })
         .eq('id', link.id);
     } catch (error) {
       const fallback = {
@@ -114,7 +151,17 @@ async function processIssue(issueId) {
       chapters.push(fallback);
       await supabase
         .from('links')
-        .update({ parsed_json: { title: fallback.title, error: true } })
+        .update({
+          parsed_json: {
+            title: fallback.title,
+            error: true,
+            wordCount: fallback.wordCount,
+            imageCount: fallback.imageCount,
+            codeCount: fallback.codeCount,
+            tweetCount: fallback.tweetCount,
+            sourceUrl: fallback.sourceUrl
+          }
+        })
         .eq('id', link.id);
     }
   }
@@ -142,58 +189,85 @@ async function processIssue(issueId) {
 
   const credits = normalizeCredits(user?.daily_credits ?? 20, user?.credits_reset_at);
   if (complexityScore > credits.available) {
-    await supabase
+    const { error: rejectError } = await supabase
       .from('issues')
       .update({ status: 'rejected', complexity_score: complexityScore })
       .eq('id', issueId);
+    if (rejectError) throw new Error(`Unable to mark rejected: ${rejectError.message}`);
+    await supabase.from('events').insert({
+      user_id: issue.user_id,
+      issue_id: issueId,
+      type: 'issue_rejected',
+      metadata: { complexity_score: complexityScore, credits_available: credits.available }
+    });
     return;
   }
 
-  await supabase
+  const { error: creditError } = await supabase
     .from('users')
     .update({ daily_credits: credits.available - complexityScore, credits_reset_at: credits.nextReset })
     .eq('id', issue.user_id);
+  if (creditError) throw new Error(`Unable to update credits: ${creditError.message}`);
 
   const html = await renderIssueHtml(issue, chapters);
   const pdfBuffer = await renderPdf(html);
+  const coverBuffer = await renderCoverImage(issue);
 
   const pdfPath = `${issueId}/issue.pdf`;
   const htmlPath = `${issueId}/issue.html`;
+  const coverPath = `${issueId}/cover.png`;
 
-  await supabase.storage.from('issues').upload(pdfPath, pdfBuffer, {
+  const { error: pdfError } = await supabase.storage.from('issues').upload(pdfPath, pdfBuffer, {
     contentType: 'application/pdf',
     upsert: true
   });
+  if (pdfError) throw new Error(`PDF upload failed: ${pdfError.message}`);
 
-  await supabase.storage.from('issues').upload(htmlPath, Buffer.from(html), {
+  const { error: htmlError } = await supabase.storage.from('issues').upload(htmlPath, Buffer.from(html), {
     contentType: 'text/html',
     upsert: true
   });
+  if (htmlError) throw new Error(`HTML upload failed: ${htmlError.message}`);
 
-  await supabase.from('assets').upsert({
+  const { error: coverError } = await supabase.storage.from('issues').upload(coverPath, coverBuffer, {
+    contentType: 'image/png',
+    upsert: true
+  });
+  if (coverError) throw new Error(`Cover upload failed: ${coverError.message}`);
+
+  const { error: assetsError } = await supabase.from('assets').upsert({
     issue_id: issueId,
     pdf_url: pdfPath,
-    html_url: htmlPath
+    html_url: htmlPath,
+    cover_url: coverPath
   });
+  if (assetsError) throw new Error(`Asset upsert failed: ${assetsError.message}`);
 
-  await supabase
+  const { error: issueUpdateError } = await supabase
     .from('issues')
     .update({ status: 'ready', complexity_score: complexityScore })
     .eq('id', issueId);
+  if (issueUpdateError) throw new Error(`Issue update failed: ${issueUpdateError.message}`);
+
+  await supabase.from('events').insert({
+    user_id: issue.user_id,
+    issue_id: issueId,
+    type: 'issue_completed',
+    metadata: { complexity_score: complexityScore }
+  });
 
   await sendCompletionEmail(user?.email, issue.title, issueId);
 }
 
 function normalizeCredits(available, lastReset) {
   const now = new Date();
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const nextReset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
   if (!lastReset) {
     return { available: 20, nextReset: nextReset.toISOString() };
   }
 
   const resetAt = new Date(lastReset);
-  if (resetAt < today) {
+  if (Number.isNaN(resetAt.getTime()) || resetAt <= now) {
     return { available: 20, nextReset: nextReset.toISOString() };
   }
 
@@ -440,6 +514,51 @@ async function renderPdf(html) {
   });
   await browser.close();
   return pdf;
+}
+
+async function renderCoverImage(issue) {
+  const theme = issue.theme === 'developer' ? 'developer' : 'journal';
+  const background = theme === 'journal' ? '#f1ede5' : '#0f1117';
+  const text = theme === 'journal' ? '#1c1b1a' : '#f3f4f6';
+  const accent = theme === 'journal' ? '#b89062' : '#7b869d';
+  const html = `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+      <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=Manrope:wght@400;600&display=swap" rel="stylesheet" />
+      <style>
+        body { margin: 0; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: ${background}; }
+        .card { width: 780px; height: 1040px; border-radius: 36px; padding: 72px; box-sizing: border-box;
+          background: ${background}; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 40px 80px rgba(15,18,26,0.25); }
+        .eyebrow { font-family: 'Manrope', sans-serif; letter-spacing: 0.35em; text-transform: uppercase; font-size: 12px; color: ${accent}; }
+        h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 48px; line-height: 1.1; color: ${text}; margin: 24px 0 18px; }
+        .meta { font-family: 'Manrope', sans-serif; font-size: 14px; color: ${text}; opacity: 0.7; letter-spacing: 0.2em; text-transform: uppercase; }
+        .rule { height: 1px; background: ${accent}; opacity: 0.4; margin: 32px 0; }
+        .brand { font-family: 'Manrope', sans-serif; font-size: 13px; letter-spacing: 0.4em; text-transform: uppercase; color: ${text}; opacity: 0.6; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="eyebrow">Curated Issue</div>
+        <h1>${escapeHtml(issue.title)}</h1>
+        <div class="meta">${new Date().toLocaleDateString('en-US')} · A4</div>
+        <div class="rule"></div>
+        <div class="brand">Issue</div>
+      </div>
+    </body>
+  </html>`;
+
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  const page = await browser.newPage();
+  await page.setViewport({ width: 900, height: 1200, deviceScaleFactor: 2 });
+  await page.setContent(html, { waitUntil: 'networkidle0' });
+  const buffer = await page.screenshot({ type: 'png' });
+  await browser.close();
+  return buffer;
 }
 
 async function sendCompletionEmail(email, title, issueId) {

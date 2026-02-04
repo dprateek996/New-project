@@ -12,6 +12,14 @@ const statusLabel: Record<IssueRow['status'], string> = {
   rejected: 'Too complex'
 };
 
+const statusTone: Record<IssueRow['status'], string> = {
+  queued: 'border-white/10 text-white/60',
+  processing: 'border-accent-400/40 text-accent-400',
+  ready: 'border-emerald-400/40 text-emerald-300',
+  failed: 'border-red-400/40 text-red-300',
+  rejected: 'border-amber-400/40 text-amber-300'
+};
+
 export function IssueCard({
   issue,
   onShareToggle
@@ -23,6 +31,9 @@ export function IssueCard({
   const coverStyle = issue.assets?.cover_url
     ? { backgroundImage: `url(${issue.assets.cover_url})` }
     : undefined;
+  const coverClassName = issue.assets?.cover_url
+    ? 'bg-cover bg-center'
+    : 'bg-[radial-gradient(circle_at_top,#1f2432,#0b0b10)]';
 
   const handleToggle = async () => {
     setBusy(true);
@@ -35,20 +46,20 @@ export function IssueCard({
   };
 
   return (
-    <div className="card-glass flex flex-col rounded-3xl p-5">
-      <div className="flex items-start justify-between">
+    <div className="card-glass group flex flex-col rounded-3xl p-5 transition hover:-translate-y-1 hover:border-white/20">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <p className="mono text-xs uppercase tracking-[0.3em] text-white/40">{issue.theme}</p>
           <h3 className="mt-3 font-serif text-lg font-semibold">{issue.title}</h3>
           <p className="mt-2 text-xs text-white/50">{formatDate(issue.created_at)}</p>
         </div>
-        <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/60">
+        <span className={`rounded-full border px-3 py-1 text-xs ${statusTone[issue.status]}`}>
           {statusLabel[issue.status]}
         </span>
       </div>
 
       <div
-        className="mt-6 h-32 rounded-2xl bg-obsidian-800/70 bg-cover bg-center"
+        className={`mt-6 h-32 rounded-2xl bg-obsidian-800/70 ${coverClassName}`}
         style={coverStyle}
       />
 

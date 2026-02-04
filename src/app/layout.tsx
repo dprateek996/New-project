@@ -25,8 +25,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full">
-      <body className={`${fraunces.variable} ${manrope.variable} ${jetbrains.variable} h-full bg-obsidian-950 text-white`}>
+    <html lang="en" className="h-full antialiased">
+      <body className={`${fraunces.variable} ${manrope.variable} ${jetbrains.variable} h-full`}>
         <PostHogClientProvider>
           {children}
         </PostHogClientProvider>

@@ -5,6 +5,7 @@ import { createSupabaseRouteClient } from '@/lib/supabase/route';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { detectSourceType, normalizeUrls } from '@/lib/urls';
 import { getServerEnv } from '@/lib/env';
+import { getNextUtcResetAt } from '@/lib/credits';
 
 const schema = z.object({
   urls: z.array(z.string().min(1)).min(1).max(10),
@@ -36,16 +37,25 @@ export async function POST(request: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  await admin
+  const { data: existingUser } = await admin
     .from('users')
-    .upsert(
-      {
-        id: auth.user.id,
-        email: auth.user.email ?? null,
-        daily_credits: 20
-      },
-      { onConflict: 'id', ignoreDuplicates: true }
-    );
+    .select('id,credits_reset_at')
+    .eq('id', auth.user.id)
+    .maybeSingle();
+
+  if (!existingUser) {
+    await admin.from('users').insert({
+      id: auth.user.id,
+      email: auth.user.email ?? null,
+      daily_credits: 20,
+      credits_reset_at: getNextUtcResetAt().toISOString()
+    });
+  } else if (!existingUser.credits_reset_at) {
+    await admin
+      .from('users')
+      .update({ credits_reset_at: getNextUtcResetAt().toISOString() })
+      .eq('id', auth.user.id);
+  }
 
   const title = payload.title?.trim() || deriveTitle(cleanedUrls[0]);
 
@@ -64,6 +74,16 @@ export async function POST(request: Request) {
   if (issueError || !issue) {
     return NextResponse.json({ error: 'Unable to create Issue.' }, { status: 500 });
   }
+
+  await admin.from('events').insert({
+    user_id: auth.user.id,
+    issue_id: issue.id,
+    type: 'issue_created',
+    metadata: {
+      link_count: cleanedUrls.length,
+      theme: payload.theme
+    }
+  });
 
   const linkRows = cleanedUrls.map((url, index) => ({
     issue_id: issue.id,
