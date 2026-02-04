@@ -30,11 +30,16 @@ async function getShiki() {
   if (!highlighterPromise) {
     highlighterPromise = getHighlighter({
       themes: ['tokyo-night', 'github-light'],
-      langs: ['javascript', 'typescript', 'tsx', 'jsx', 'json', 'bash', 'html', 'css', 'python', 'go', 'rust']
+      langs: ['plaintext', 'javascript', 'typescript', 'tsx', 'jsx', 'json', 'bash', 'html', 'css', 'python', 'go', 'rust']
     });
   }
   return highlighterPromise;
 }
+
+const ALLOWED_HOSTS = (process.env.ALLOWED_URL_HOSTS ?? '')
+  .split(/[\s,]+/)
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
 
 app.post('/jobs/issue', async (req, res) => {
   const secret = req.header('x-worker-secret');
@@ -188,6 +193,13 @@ async function processIssue(issueId) {
     .single();
 
   const credits = normalizeCredits(user?.daily_credits ?? 20, user?.credits_reset_at);
+  if (credits.needsReset) {
+    const { error: resetError } = await supabase
+      .from('users')
+      .update({ daily_credits: credits.available, credits_reset_at: credits.nextReset })
+      .eq('id', issue.user_id);
+    if (resetError) throw new Error(`Unable to reset credits: ${resetError.message}`);
+  }
   if (complexityScore > credits.available) {
     const { error: rejectError } = await supabase
       .from('issues')
@@ -263,15 +275,15 @@ function normalizeCredits(available, lastReset) {
   const now = new Date();
   const nextReset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
   if (!lastReset) {
-    return { available: 20, nextReset: nextReset.toISOString() };
+    return { available: 20, nextReset: nextReset.toISOString(), needsReset: true };
   }
 
   const resetAt = new Date(lastReset);
   if (Number.isNaN(resetAt.getTime()) || resetAt <= now) {
-    return { available: 20, nextReset: nextReset.toISOString() };
+    return { available: 20, nextReset: nextReset.toISOString(), needsReset: true };
   }
 
-  return { available, nextReset: resetAt.toISOString() };
+  return { available, nextReset: resetAt.toISOString(), needsReset: false };
 }
 
 async function parseArticle(url) {
@@ -370,10 +382,16 @@ async function highlightCode(html, theme) {
     const parent = node.parentElement;
     const raw = node.textContent || '';
     const lang = guessLanguage(node.className);
-    const highlighted = highlighter.codeToHtml(raw, {
-      lang,
-      theme
-    });
+    let highlighted;
+    try {
+      highlighted = highlighter.codeToHtml(raw, { lang, theme });
+    } catch (error) {
+      try {
+        highlighted = highlighter.codeToHtml(raw, { lang: 'plaintext', theme });
+      } catch {
+        continue;
+      }
+    }
 
     if (parent) {
       parent.outerHTML = highlighted;
@@ -386,7 +404,7 @@ async function highlightCode(html, theme) {
 
 function guessLanguage(className) {
   const match = className?.match(/language-([\w-]+)/);
-  return match?.[1] || 'text';
+  return match?.[1] || 'plaintext';
 }
 
 function stripTags(value) {
@@ -409,16 +427,36 @@ function isSafeUrl(value) {
     const hostname = url.hostname;
     if (hostname === 'localhost' || hostname.endsWith('.local')) return false;
     const ipMatch = hostname.match(/^(\\d{1,3}\\.){3}\\d{1,3}$/);
-    if (!ipMatch) return true;
+    if (!ipMatch) return isAllowedHost(hostname);
     const parts = hostname.split('.').map(Number);
     if (parts[0] === 10) return false;
     if (parts[0] === 127) return false;
     if (parts[0] === 192 && parts[1] === 168) return false;
     if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
-    return true;
+    return isAllowedHost(hostname);
   } catch {
     return false;
   }
+}
+
+function isAllowedHost(hostname) {
+  if (!ALLOWED_HOSTS.length) {
+    return false;
+  }
+
+  const host = hostname.toLowerCase();
+  return ALLOWED_HOSTS.some((entry) => {
+    if (entry === '*') return true;
+    if (entry.startsWith('*.')) {
+      const root = entry.slice(2);
+      return host === root || host.endsWith(`.${root}`);
+    }
+    if (entry.startsWith('.')) {
+      const root = entry.slice(1);
+      return host === root || host.endsWith(`.${root}`);
+    }
+    return host === entry;
+  });
 }
 
 async function renderIssueHtml(issue, chapters) {

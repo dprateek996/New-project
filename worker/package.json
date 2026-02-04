@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "@mozilla/readability": "^0.5.0",
-    "@supabase/supabase-js": "^2.47.10",
+    "@supabase/supabase-js": "^2.94.1",
     "express": "^4.19.2",
     "jsdom": "^24.1.1",
     "puppeteer": "^23.2.1",

@@ -107,8 +107,13 @@ export function IssueStudio({
       });
 
       if (!response.ok) {
-        const body = await response.json();
-        setStatus(body.error ?? 'Unable to craft Issue.');
+        try {
+          const body = await response.json();
+          setStatus(body.error ?? 'Unable to craft Issue.');
+        } catch {
+          const text = await response.text();
+          setStatus(text ? `Server error (${response.status}).` : 'Unable to craft Issue.');
+        }
         return;
       }
 

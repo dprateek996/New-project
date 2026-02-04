@@ -10,6 +10,11 @@ const TRACKING_PARAMS = new Set([
   'gclid'
 ]);
 
+const ALLOWED_HOSTS = (process.env.ALLOWED_URL_HOSTS ?? '')
+  .split(/[\s,]+/)
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
+
 export type SourceType = 'article' | 'x';
 
 export function normalizeUrls(rawUrls: string[]) {
@@ -28,6 +33,7 @@ export function canonicalizeUrl(input: string) {
     const url = new URL(input);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
     if (isPrivateHost(url.hostname)) return null;
+    if (!isAllowedHost(url.hostname)) return null;
 
     TRACKING_PARAMS.forEach((param) => url.searchParams.delete(param));
     url.hash = '';
@@ -54,4 +60,24 @@ function isPrivateHost(hostname: string) {
   if (parts[0] === 192 && parts[1] === 168) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
   return false;
+}
+
+function isAllowedHost(hostname: string) {
+  if (!ALLOWED_HOSTS.length) {
+    return false;
+  }
+
+  const host = hostname.toLowerCase();
+  return ALLOWED_HOSTS.some((entry) => {
+    if (entry === '*') return true;
+    if (entry.startsWith('*.')) {
+      const root = entry.slice(2);
+      return host === root || host.endsWith(`.${root}`);
+    }
+    if (entry.startsWith('.')) {
+      const root = entry.slice(1);
+      return host === root || host.endsWith(`.${root}`);
+    }
+    return host === entry;
+  });
 }
