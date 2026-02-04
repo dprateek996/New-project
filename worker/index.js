@@ -6,6 +6,8 @@ import { Readability } from '@mozilla/readability';
 import sanitizeHtml from 'sanitize-html';
 import { getHighlighter } from 'shiki';
 import puppeteer from 'puppeteer';
+import fs from 'node:fs';
+import { execSync } from 'node:child_process';
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -34,6 +36,41 @@ async function getShiki() {
     });
   }
   return highlighterPromise;
+}
+
+let chromePathPromise;
+async function ensureChrome() {
+  if (!chromePathPromise) {
+    chromePathPromise = (async () => {
+      const resolvePath = () => {
+        if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+        try {
+          return puppeteer.executablePath();
+        } catch {
+          return null;
+        }
+      };
+
+      let executablePath = resolvePath();
+      if (executablePath && fs.existsSync(executablePath)) {
+        return executablePath;
+      }
+
+      try {
+        execSync('npx puppeteer browsers install chrome', { stdio: 'inherit' });
+      } catch (error) {
+        throw new Error('Chrome install failed. Ensure Render build runs puppeteer install.');
+      }
+
+      executablePath = resolvePath();
+      if (!executablePath || !fs.existsSync(executablePath)) {
+        throw new Error('Chrome executable not found after install.');
+      }
+
+      return executablePath;
+    })();
+  }
+  return chromePathPromise;
 }
 
 const ALLOWED_HOSTS = (process.env.ALLOWED_URL_HOSTS ?? '')
@@ -337,7 +374,9 @@ async function parseArticle(url) {
 }
 
 async function parseX(url) {
+  const executablePath = await ensureChrome();
   const browser = await puppeteer.launch({
+    executablePath,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   const page = await browser.newPage();
@@ -541,7 +580,9 @@ async function renderIssueHtml(issue, chapters) {
 }
 
 async function renderPdf(html) {
+  const executablePath = await ensureChrome();
   const browser = await puppeteer.launch({
+    executablePath,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   const page = await browser.newPage();
@@ -588,7 +629,9 @@ async function renderCoverImage(issue) {
     </body>
   </html>`;
 
+  const executablePath = await ensureChrome();
   const browser = await puppeteer.launch({
+    executablePath,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   const page = await browser.newPage();
