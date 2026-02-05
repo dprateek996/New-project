@@ -73,6 +73,32 @@ async function ensureChrome() {
   return chromePathPromise;
 }
 
+let browserPromise;
+async function getBrowser() {
+  if (!browserPromise) {
+    browserPromise = (async () => {
+      const executablePath = await ensureChrome();
+      return puppeteer.launch({
+        executablePath,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+    })();
+  }
+  return browserPromise;
+}
+
+async function closeBrowser() {
+  if (!browserPromise) return;
+  try {
+    const browser = await browserPromise;
+    await browser.close();
+  } catch (error) {
+    console.error('Browser close failed', error);
+  } finally {
+    browserPromise = null;
+  }
+}
+
 const ALLOWED_HOSTS = (process.env.ALLOWED_URL_HOSTS ?? '')
   .split(/[\s,]+/)
   .map((host) => host.trim().toLowerCase())
@@ -113,6 +139,8 @@ app.post('/jobs/issue', async (req, res) => {
 });
 
 async function processIssue(issueId) {
+  const startedAt = Date.now();
+  console.log(`[issue ${issueId}] started`);
   const { data: issueRow } = await supabase
     .from('issues')
     .select('id,user_id,title,theme,status')
@@ -136,8 +164,8 @@ async function processIssue(issueId) {
 
   if (!links?.length) throw new Error('No links');
 
-  const chapters = [];
-  for (const link of links) {
+  const parseConcurrency = Math.max(1, Number(process.env.LINK_PARSE_CONCURRENCY ?? 4));
+  const chapterResults = await mapWithConcurrency(links, parseConcurrency, async (link) => {
     if (!isSafeUrl(link.url)) {
       const fallback = {
         title: 'Blocked URL',
@@ -148,7 +176,6 @@ async function processIssue(issueId) {
         tweetCount: 0,
         sourceUrl: link.url
       };
-      chapters.push(fallback);
       await supabase
         .from('links')
         .update({
@@ -163,11 +190,11 @@ async function processIssue(issueId) {
           }
         })
         .eq('id', link.id);
-      continue;
+      return { order: link.order_index, chapter: fallback };
     }
+
     try {
       const chapter = link.source_type === 'x' ? await parseX(link.url) : await parseArticle(link.url);
-      chapters.push(chapter);
       await supabase
         .from('links')
         .update({
@@ -181,6 +208,7 @@ async function processIssue(issueId) {
           }
         })
         .eq('id', link.id);
+      return { order: link.order_index, chapter };
     } catch (error) {
       const fallback = {
         title: 'Link unavailable',
@@ -191,7 +219,6 @@ async function processIssue(issueId) {
         tweetCount: 0,
         sourceUrl: link.url
       };
-      chapters.push(fallback);
       await supabase
         .from('links')
         .update({
@@ -206,8 +233,14 @@ async function processIssue(issueId) {
           }
         })
         .eq('id', link.id);
+      return { order: link.order_index, chapter: fallback };
     }
-  }
+  });
+
+  const chapters = chapterResults
+    .sort((a, b) => a.order - b.order)
+    .map((entry) => entry.chapter);
+  console.log(`[issue ${issueId}] parsed ${chapters.length} link(s) in ${Date.now() - startedAt}ms`);
 
   const metrics = chapters.reduce(
     (acc, chapter) => {
@@ -271,11 +304,12 @@ async function processIssue(issueId) {
 
   const html = await renderIssueHtml(issue, chapters);
   const pdfBuffer = await renderPdf(html);
-  const coverBuffer = await renderCoverImage(issue);
+  const coverBuffer = Buffer.from(renderCoverSvg(issue), 'utf-8');
+  console.log(`[issue ${issueId}] rendered pdf/html in ${Date.now() - startedAt}ms`);
 
   const pdfPath = `${issueId}/issue.pdf`;
   const htmlPath = `${issueId}/issue.html`;
-  const coverPath = `${issueId}/cover.png`;
+  const coverPath = `${issueId}/cover.svg`;
 
   const { error: pdfError } = await supabase.storage.from('issues').upload(pdfPath, pdfBuffer, {
     contentType: 'application/pdf',
@@ -290,7 +324,7 @@ async function processIssue(issueId) {
   if (htmlError) throw new Error(`HTML upload failed: ${htmlError.message}`);
 
   const { error: coverError } = await supabase.storage.from('issues').upload(coverPath, coverBuffer, {
-    contentType: 'image/png',
+    contentType: 'image/svg+xml',
     upsert: true
   });
   if (coverError) throw new Error(`Cover upload failed: ${coverError.message}`);
@@ -317,6 +351,7 @@ async function processIssue(issueId) {
   });
 
   await sendCompletionEmail(user?.email, issue.title, issueId);
+  console.log(`[issue ${issueId}] completed in ${Date.now() - startedAt}ms`);
 }
 
 function normalizeCredits(available, lastReset) {
@@ -334,12 +369,48 @@ function normalizeCredits(available, lastReset) {
   return { available, nextReset: resetAt.toISOString(), needsReset: false };
 }
 
+async function fetchWithTimeout(url, { timeoutMs = 10000, ...options } = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function mapWithConcurrency(items, concurrency, task) {
+  if (!items.length) return [];
+  const max = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array(items.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      results[index] = await task(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: max }, () => worker()));
+  return results;
+}
+
 async function parseArticle(url) {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
+    timeoutMs: 12000,
     headers: {
       'User-Agent': 'IssueBot/1.0'
     }
   });
+  if (!response.ok) {
+    throw new Error(`Article fetch failed with status ${response.status}`);
+  }
   const html = await response.text();
   const dom = new JSDOM(html, { url });
   const reader = new Readability(dom.window.document);
@@ -385,36 +456,117 @@ async function parseArticle(url) {
 }
 
 async function parseX(url) {
-  const executablePath = await ensureChrome();
-  const browser = await puppeteer.launch({
-    executablePath,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-  const page = await browser.newPage();
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+  const tweetId = extractXStatusId(url);
+  const includeThread = process.env.X_INCLUDE_THREAD !== 'false';
+  const browserTimeout = Math.max(2500, Number(process.env.X_BROWSER_TIMEOUT_MS ?? 6000));
 
-  const tweets = await page.$$eval('article div[data-testid="tweetText"]', (nodes) =>
-    nodes.map((node) => node.innerText)
-  );
+  let singleTweet = null;
+  if (tweetId) {
+    singleTweet = await parseXViaSyndication(tweetId, url);
+  }
 
-  await browser.close();
+  if (includeThread) {
+    try {
+      const threaded = await parseXViaBrowser(url, { timeoutMs: browserTimeout });
+      if (!singleTweet || threaded.tweetCount > 1) {
+        return threaded;
+      }
+    } catch {
+      // fall through to fast single tweet if thread expansion fails
+    }
+  }
 
-  const safeTweets = tweets.length ? tweets : ['Unable to extract tweets.'];
-  const tweetHtml = safeTweets
-    .map((tweet) => `<blockquote class="tweet">${escapeHtml(tweet)}</blockquote>`)
-    .join('');
-
-  const wordCount = safeTweets.join(' ').split(/\s+/).filter(Boolean).length;
+  if (singleTweet) return singleTweet;
 
   return {
     title: 'X Thread',
-    content: tweetHtml,
-    wordCount,
+    content: '<p>Unable to extract tweet text quickly. Open the source link in the Issue.</p>',
+    wordCount: 0,
     imageCount: 0,
     codeCount: 0,
-    tweetCount: safeTweets.length,
+    tweetCount: 0,
     sourceUrl: url
   };
+}
+
+function extractXStatusId(url) {
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/\/status\/(\d+)/);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function parseXViaSyndication(tweetId, sourceUrl) {
+  try {
+    const endpoint = `https://cdn.syndication.twimg.com/tweet-result?id=${tweetId}&lang=en`;
+    const response = await fetchWithTimeout(endpoint, {
+      timeoutMs: 6000,
+      headers: {
+        'User-Agent': 'IssueBot/1.0'
+      }
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const text = `${payload?.text ?? ''}`.trim();
+    if (!text) return null;
+
+    const safeTweets = [text];
+    const tweetHtml = safeTweets
+      .map((tweet) => `<blockquote class="tweet">${escapeHtml(tweet)}</blockquote>`)
+      .join('');
+    const wordCount = safeTweets.join(' ').split(/\s+/).filter(Boolean).length;
+    const username = payload?.user?.screen_name ? `@${payload.user.screen_name}` : 'X Thread';
+
+    return {
+      title: username,
+      content: tweetHtml,
+      wordCount,
+      imageCount: 0,
+      codeCount: 0,
+      tweetCount: 1,
+      sourceUrl
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function parseXViaBrowser(url, { timeoutMs = 6000 } = {}) {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    await page
+      .waitForSelector('article div[data-testid="tweetText"]', {
+        timeout: Math.max(800, Math.min(2000, Math.floor(timeoutMs / 2)))
+      })
+      .catch(() => null);
+
+    const tweets = await page.$$eval('article div[data-testid="tweetText"]', (nodes) =>
+      nodes.map((node) => node.innerText)
+    );
+    const deduped = Array.from(new Set(tweets.map((tweet) => `${tweet}`.trim()).filter(Boolean)));
+    const safeTweets = deduped.length ? deduped.slice(0, 8) : ['Unable to extract tweets.'];
+    const tweetHtml = safeTweets
+      .map((tweet) => `<blockquote class="tweet">${escapeHtml(tweet)}</blockquote>`)
+      .join('');
+    const wordCount = safeTweets.join(' ').split(/\s+/).filter(Boolean).length;
+
+    return {
+      title: 'X Thread',
+      content: tweetHtml,
+      wordCount,
+      imageCount: 0,
+      codeCount: 0,
+      tweetCount: safeTweets.length,
+      sourceUrl: url
+    };
+  } finally {
+    await page.close().catch(() => {});
+  }
 }
 
 async function highlightCode(html, theme) {
@@ -540,32 +692,29 @@ async function renderIssueHtml(issue, chapters) {
   <head>
     <meta charset="utf-8" />
     <title>${escapeHtml(issue.title)}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600&family=Manrope:wght@300;400;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
     <style>
       @page { size: A4; margin: 24mm; }
-      body { margin: 0; font-family: 'Manrope', sans-serif; color: ${theme === 'journal' ? '#1c1b1a' : '#f3f4f6'}; background: ${
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: ${theme === 'journal' ? '#1c1b1a' : '#f3f4f6'}; background: ${
         theme === 'journal' ? '#f8f5ef' : '#11131a'
       }; }
       .cover { display: flex; flex-direction: column; justify-content: center; height: 100vh; padding: 72px; background: ${
         theme === 'journal' ? '#f1ede5' : '#0f1117'
       }; page-break-after: always; }
-      .cover h1 { font-family: 'Fraunces', serif; font-size: 42px; margin: 0 0 12px; color: ${
+      .cover h1 { font-family: Georgia, serif; font-size: 42px; margin: 0 0 12px; color: ${
         theme === 'journal' ? '#1c1b1a' : '#f3f4f6'
       }; }
       .cover p { margin: 0; font-size: 14px; letter-spacing: 0.2em; text-transform: uppercase; color: ${
         theme === 'journal' ? '#4a4340' : '#8c93a5'
       }; }
       .toc { padding: 40px 72px; page-break-after: always; }
-      .toc h2 { font-family: 'Fraunces', serif; }
+      .toc h2 { font-family: Georgia, serif; }
       .toc ul { list-style: none; padding: 0; margin: 16px 0 0; }
       .toc li { margin-bottom: 8px; font-size: 14px; }
       .chapter { padding: 24px 72px; page-break-after: always; }
-      .chapter h2 { font-family: 'Fraunces', serif; margin-top: 32px; }
+      .chapter h2 { font-family: Georgia, serif; margin-top: 32px; }
       .source { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: ${theme === 'journal' ? '#6b625e' : '#8c93a5'}; }
       pre { background: ${theme === 'developer' ? '#0b0b0e' : '#1f1f1f'}; color: #f5f5f5; padding: 16px; border-radius: 12px; overflow: auto; }
-      code { font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; font-size: 13px; }
       img { max-width: 100%; border-radius: 12px; margin: 16px 0; }
       blockquote.tweet { border-left: 3px solid ${theme === 'developer' ? '#7b869d' : '#b89062'}; padding-left: 12px; margin: 12px 0; color: ${
         theme === 'developer' ? '#f3f4f6' : '#4a4340'
@@ -660,66 +809,38 @@ function truncate(value, length) {
 }
 
 async function renderPdf(html) {
-  const executablePath = await ensureChrome();
-  const browser = await puppeteer.launch({
-    executablePath,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
+  const browser = await getBrowser();
   const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: 'networkidle0' });
-  const pdf = await page.pdf({
-    format: 'A4',
-    printBackground: true
-  });
-  await browser.close();
-  return pdf;
+  try {
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(80);
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true
+    });
+    return pdf;
+  } finally {
+    await page.close().catch(() => {});
+  }
 }
 
-async function renderCoverImage(issue) {
+function renderCoverSvg(issue) {
   const theme = issue.theme === 'developer' ? 'developer' : 'journal';
   const background = theme === 'journal' ? '#f1ede5' : '#0f1117';
   const text = theme === 'journal' ? '#1c1b1a' : '#f3f4f6';
   const accent = theme === 'journal' ? '#b89062' : '#7b869d';
-  const html = `<!DOCTYPE html>
-  <html>
-    <head>
-      <meta charset="utf-8" />
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-      <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=Manrope:wght@400;600&display=swap" rel="stylesheet" />
-      <style>
-        body { margin: 0; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: ${background}; }
-        .card { width: 780px; height: 1040px; border-radius: 36px; padding: 72px; box-sizing: border-box;
-          background: ${background}; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 40px 80px rgba(15,18,26,0.25); }
-        .eyebrow { font-family: 'Manrope', sans-serif; letter-spacing: 0.35em; text-transform: uppercase; font-size: 12px; color: ${accent}; }
-        h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 48px; line-height: 1.1; color: ${text}; margin: 24px 0 18px; }
-        .meta { font-family: 'Manrope', sans-serif; font-size: 14px; color: ${text}; opacity: 0.7; letter-spacing: 0.2em; text-transform: uppercase; }
-        .rule { height: 1px; background: ${accent}; opacity: 0.4; margin: 32px 0; }
-        .brand { font-family: 'Manrope', sans-serif; font-size: 13px; letter-spacing: 0.4em; text-transform: uppercase; color: ${text}; opacity: 0.6; }
-      </style>
-    </head>
-    <body>
-      <div class="card">
-        <div class="eyebrow">Curated Issue</div>
-        <h1>${escapeHtml(issue.title)}</h1>
-        <div class="meta">${new Date().toLocaleDateString('en-US')} · A4</div>
-        <div class="rule"></div>
-        <div class="brand">Issue</div>
-      </div>
-    </body>
-  </html>`;
-
-  const executablePath = await ensureChrome();
-  const browser = await puppeteer.launch({
-    executablePath,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-  const page = await browser.newPage();
-  await page.setViewport({ width: 900, height: 1200, deviceScaleFactor: 2 });
-  await page.setContent(html, { waitUntil: 'networkidle0' });
-  const buffer = await page.screenshot({ type: 'png' });
-  await browser.close();
-  return buffer;
+  const title = escapeHtml(issue.title);
+  const date = new Date().toLocaleDateString('en-US');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1600" viewBox="0 0 1200 1600">
+  <rect x="0" y="0" width="1200" height="1600" fill="${background}" />
+  <rect x="80" y="80" width="1040" height="1440" rx="42" fill="${background}" stroke="${accent}" stroke-opacity="0.35" />
+  <text x="140" y="220" fill="${accent}" font-size="20" letter-spacing="7" font-family="Arial, Helvetica, sans-serif">CURATED ISSUE</text>
+  <text x="140" y="360" fill="${text}" font-size="68" font-family="Georgia, serif">${title}</text>
+  <text x="140" y="460" fill="${text}" fill-opacity="0.7" font-size="24" letter-spacing="3" font-family="Arial, Helvetica, sans-serif">${date}  A4</text>
+  <line x1="140" y1="520" x2="1060" y2="520" stroke="${accent}" stroke-opacity="0.45" />
+  <text x="140" y="610" fill="${text}" fill-opacity="0.6" font-size="22" letter-spacing="9" font-family="Arial, Helvetica, sans-serif">ISSUE</text>
+</svg>`;
 }
 
 async function sendCompletionEmail(email, title, issueId) {
@@ -743,4 +864,16 @@ async function sendCompletionEmail(email, title, issueId) {
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
   console.log(`Worker running on :${port}`);
+  // Warm browser/chrome once at startup to avoid first-job latency spikes.
+  getBrowser()
+    .then(() => console.log('Browser warmup complete'))
+    .catch((error) => console.error('Browser warmup failed', error));
+});
+
+process.on('SIGINT', () => {
+  closeBrowser().finally(() => process.exit(0));
+});
+
+process.on('SIGTERM', () => {
+  closeBrowser().finally(() => process.exit(0));
 });

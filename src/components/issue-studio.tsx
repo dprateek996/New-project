@@ -62,8 +62,7 @@ export function IssueStudio({
         pending.map(async (issue) => {
           const response = await fetch(`/api/issue/${issue.id}`);
           if (!response.ok) return issue;
-          const data = (await response.json()) as IssueRow;
-          return data;
+          return (await response.json()) as IssueRow;
         })
       );
 
@@ -75,12 +74,14 @@ export function IssueStudio({
     return () => clearInterval(interval);
   }, [issues]);
 
-  const parsedUrls = useMemo(() =>
-    urls
-      .split(/\n|,/)
-      .map((url) => url.trim())
-      .filter(Boolean),
-  [urls]);
+  const parsedUrls = useMemo(
+    () =>
+      urls
+        .split(/\n|,/)
+        .map((url) => url.trim())
+        .filter(Boolean),
+    [urls]
+  );
 
   const handleSubmit = async () => {
     setStatus(null);
@@ -111,8 +112,7 @@ export function IssueStudio({
           const body = await response.json();
           setStatus(body.error ?? 'Unable to craft Issue.');
         } catch {
-          const text = await response.text();
-          setStatus(text ? `Server error (${response.status}).` : 'Unable to craft Issue.');
+          setStatus(`Server error (${response.status}).`);
         }
         return;
       }
@@ -122,7 +122,7 @@ export function IssueStudio({
       setUrls('');
       setTitle('');
       setStatus('Crafting started. You will receive an email when it is ready.');
-    } catch (error) {
+    } catch {
       setStatus('Network error. Try again in a moment.');
     } finally {
       setIsSubmitting(false);
@@ -146,36 +146,33 @@ export function IssueStudio({
 
   return (
     <div className="mx-auto max-w-6xl">
-      <header className="flex flex-wrap items-center justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-5">
         <div>
-          <p className="mono text-xs uppercase tracking-[0.3em] text-white/40">Your Studio</p>
-          <h1 className="mt-2 font-serif text-3xl font-semibold">Issue Library</h1>
-          <p className="mt-2 text-sm text-white/60">Signed in as {userEmail}</p>
+          <p className="mono text-[10px] uppercase tracking-[0.3em] text-white/46">Issue Studio</p>
+          <h1 className="mt-2 font-serif text-4xl leading-tight">Your private shelf for curated reading.</h1>
+          <p className="mt-3 text-sm text-white/62">Signed in as {userEmail}</p>
         </div>
-        <span className="rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/40">
-          Credits refresh daily · 20/day
-        </span>
+        <div className="panel-muted rounded-2xl px-4 py-3 text-xs text-white/62">
+          <p className="mono text-[10px] uppercase tracking-[0.23em] text-white/50">Usage</p>
+          <p className="mt-2">20 credits refresh daily at UTC midnight.</p>
+        </div>
       </header>
 
-      <section className="mt-10 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="card-glass rounded-[32px] p-6">
+      <section className="mt-10 grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
+        <div className="card-glass rounded-[30px] p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 className="font-serif text-xl font-semibold">Craft a new Issue</h2>
-              <p className="mt-2 text-sm text-white/60">
-                Paste 1–10 links. We will stitch them into a single Issue.
-              </p>
+              <h2 className="font-serif text-2xl">Craft a new Issue</h2>
+              <p className="mt-2 text-sm text-white/62">Paste 1 to 10 links. We compose them into one publishable artifact.</p>
             </div>
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 p-1 text-xs">
+            <div className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 p-1">
               {themeOptions.map((option) => (
                 <button
                   key={option}
                   type="button"
                   onClick={() => setTheme(option)}
-                  className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.25em] transition ${
-                    theme === option
-                      ? 'bg-accent-400 text-obsidian-950'
-                      : 'text-white/60 hover:text-white'
+                  className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.22em] transition ${
+                    theme === option ? 'bg-[#f0c996] text-[#1a1208]' : 'text-white/58 hover:text-white'
                   }`}
                 >
                   {THEMES[option].label}
@@ -184,76 +181,74 @@ export function IssueStudio({
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4">
+          <div className="mt-6 space-y-4">
             <textarea
               value={urls}
               onChange={(event) => setUrls(event.target.value)}
               placeholder="Paste links, one per line"
-              className="input-shell min-h-[180px] w-full rounded-3xl px-6 py-5 text-sm"
+              className="input-shell min-h-[180px] w-full rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/35 focus:outline-none"
             />
-            <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
               <input
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="Optional Issue title"
-                className="input-shell rounded-2xl px-4 py-3 text-sm"
+                className="input-shell rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/35 focus:outline-none"
               />
               <button
                 type="button"
                 onClick={handleSubmit}
                 disabled={isSubmitting}
-                className="rounded-full bg-accent-400 px-6 py-3 text-sm font-semibold text-obsidian-950 transition hover:bg-accent-500 disabled:opacity-40"
+                className="btn-primary rounded-full px-6 py-3 text-sm font-semibold disabled:opacity-45"
               >
-                {isSubmitting ? 'Crafting…' : 'Craft Issue'}
+                {isSubmitting ? 'Crafting...' : 'Craft Issue'}
               </button>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-white/50">
+
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white/55">
               <span>{parsedUrls.length ? `${parsedUrls.length} link${parsedUrls.length > 1 ? 's' : ''} detected` : 'Paste links to begin'}</span>
-              <span>Complexity score calculated after parsing</span>
+              <span>Complexity score is based on words, images, code blocks, and tweets</span>
             </div>
-            {status && <p className="text-xs text-white/60">{status}</p>}
+
+            {status && <p className="rounded-xl border border-white/12 bg-white/5 px-3 py-2 text-xs text-white/75">{status}</p>}
           </div>
         </div>
 
-        <aside className="card-glass rounded-[32px] p-6">
-          <div className="flex items-center justify-between text-xs text-white/50">
-            <span className="mono">LIVE PREVIEW</span>
-            <span>{THEMES[theme].label} theme</span>
-          </div>
-          <div
-            className={`mt-6 rounded-3xl p-6 shadow-inner ${
-              isJournal ? 'bg-paper-50 text-obsidian-950' : 'border border-white/10 bg-obsidian-900 text-white'
-            }`}
-          >
-            <p className={`text-xs uppercase tracking-[0.3em] ${isJournal ? 'text-obsidian-700' : 'text-white/50'}`}>
-              Issue Preview
-            </p>
-            <h3 className={`mt-4 text-2xl font-semibold ${isJournal ? 'font-serif' : 'font-sans'}`}>
-              {title.trim() || 'The Art of Reading Code'}
-            </h3>
-            <p className={`mt-4 text-sm ${isJournal ? 'text-obsidian-700' : 'text-white/70'}`}>
-              {THEMES[theme].description} A calm layout with a table of contents and highlighted code blocks.
-            </p>
-            <div
-              className={`mt-6 h-32 rounded-2xl ${
+        <aside className="card-glass relative overflow-hidden rounded-[30px] p-6">
+          <div className="absolute -right-20 -top-20 h-44 w-44 rounded-full border border-white/10" />
+          <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full border border-white/10 spin-slow" />
+          <div className="relative">
+            <div className="flex items-center justify-between text-xs text-white/58">
+              <span className="mono text-[10px] tracking-[0.25em]">LIVE PREVIEW</span>
+              <span>{THEMES[theme].label}</span>
+            </div>
+
+            <div className={`mt-5 rounded-2xl border p-5 ${
+              isJournal
+                ? 'border-[#bcae98]/35 bg-[#f3eadc] text-[#2b1f12]'
+                : 'border-white/10 bg-[#101522] text-white'
+            }`}>
+              <p className={`mono text-[10px] uppercase tracking-[0.24em] ${isJournal ? 'text-[#5b4a33]' : 'text-white/55'}`}>
+                Issue Cover
+              </p>
+              <h3 className={`mt-4 text-2xl leading-tight ${isJournal ? 'font-serif' : 'font-sans'}`}>
+                {title.trim() || 'Architecture Notes for Reliable APIs'}
+              </h3>
+              <p className={`mt-4 text-sm ${isJournal ? 'text-[#4f4234]' : 'text-white/70'}`}>
+                {THEMES[theme].description} with auto TOC, source attribution, and code-aware formatting.
+              </p>
+              <div className={`mt-6 h-24 rounded-xl ${
                 isJournal
-                  ? 'border border-obsidian-800/10 bg-[linear-gradient(135deg,#f1ede5,#e8e1d5)]'
-                  : 'border border-white/10 bg-[linear-gradient(135deg,#0f1117,#1a2234)]'
-              }`}
-            />
-          </div>
-          <div className="mt-6 grid gap-3 text-xs text-white/60">
-            <div className="flex items-center justify-between">
-              <span>Output</span>
-              <span className="text-white/50">A4 PDF + web reader</span>
+                  ? 'bg-gradient-to-br from-[#efe1cf] to-[#ddc8ad]'
+                  : 'bg-gradient-to-br from-[#111a2e] to-[#1d2b42]'
+              }`} />
             </div>
-            <div className="flex items-center justify-between">
-              <span>Attribution</span>
-              <span className="text-white/50">Author, source, date</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Notifications</span>
-              <span className="text-white/50">Email + in-app</span>
+
+            <div className="mt-5 grid gap-2 text-xs text-white/63">
+              <div className="panel-muted rounded-xl px-3 py-2">Output: A4 PDF + web reader</div>
+              <div className="panel-muted rounded-xl px-3 py-2">Notifications: Email + in-app</div>
+              <div className="panel-muted rounded-xl px-3 py-2">Sharing: Private by default, public toggle per Issue</div>
             </div>
           </div>
         </aside>
@@ -261,14 +256,13 @@ export function IssueStudio({
 
       <section className="mt-12">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-serif text-2xl font-semibold">Your Shelf</h2>
-          <span className="text-xs text-white/50">Private by default · Share when ready</span>
+          <h2 className="font-serif text-3xl">Your Shelf</h2>
+          <span className="text-xs uppercase tracking-[0.2em] text-white/50">Private by default</span>
         </div>
+
         <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
           {issues.length === 0 ? (
-            <div className="card-glass rounded-3xl p-6 text-sm text-white/60">
-              Your shelf is empty. Craft your first Issue.
-            </div>
+            <div className="card-glass rounded-3xl p-6 text-sm text-white/66">Your shelf is empty. Craft your first Issue.</div>
           ) : (
             issues.map((issue) => (
               <IssueCard key={issue.id} issue={issue} onShareToggle={handleShareToggle} />

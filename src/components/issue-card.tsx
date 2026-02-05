@@ -13,9 +13,9 @@ const statusLabel: Record<IssueRow['status'], string> = {
 };
 
 const statusTone: Record<IssueRow['status'], string> = {
-  queued: 'border-white/10 text-white/60',
-  processing: 'border-accent-400/40 text-accent-400',
-  ready: 'border-emerald-400/40 text-emerald-300',
+  queued: 'border-white/18 text-white/60',
+  processing: 'border-[#d8b282]/45 text-[#f0c996]',
+  ready: 'border-[#86b49e]/45 text-[#9ed5b7]',
   failed: 'border-red-400/40 text-red-300',
   rejected: 'border-amber-400/40 text-amber-300'
 };
@@ -28,12 +28,10 @@ export function IssueCard({
   onShareToggle: (issueId: string, nextValue: boolean) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+
   const coverStyle = issue.assets?.cover_url
     ? { backgroundImage: `url(${issue.assets.cover_url})` }
     : undefined;
-  const coverClassName = issue.assets?.cover_url
-    ? 'bg-cover bg-center'
-    : 'bg-[radial-gradient(circle_at_top,#1f2432,#0b0b10)]';
 
   const handleToggle = async () => {
     setBusy(true);
@@ -46,54 +44,56 @@ export function IssueCard({
   };
 
   return (
-    <div className="card-glass group flex flex-col rounded-3xl p-5 transition hover:-translate-y-1 hover:border-white/20">
-      <div className="flex items-start justify-between gap-3">
+    <article className="card-glass group rounded-3xl p-5 transition duration-300 hover:-translate-y-1 hover:border-white/25">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="mono text-xs uppercase tracking-[0.3em] text-white/40">{issue.theme}</p>
-          <h3 className="mt-3 font-serif text-lg font-semibold">{issue.title}</h3>
-          <p className="mt-2 text-xs text-white/50">{formatDate(issue.created_at)}</p>
+          <p className="mono text-[10px] uppercase tracking-[0.28em] text-white/44">{issue.theme}</p>
+          <h3 className="mt-3 font-serif text-xl leading-tight">{issue.title}</h3>
+          <p className="mt-2 text-xs text-white/52">{formatDate(issue.created_at)}</p>
         </div>
-        <span className={`rounded-full border px-3 py-1 text-xs ${statusTone[issue.status]}`}>
+        <span className={`rounded-full border px-3 py-1 text-[11px] ${statusTone[issue.status]}`}>
           {statusLabel[issue.status]}
         </span>
       </div>
 
       <div
-        className={`mt-6 h-32 rounded-2xl bg-obsidian-800/70 ${coverClassName}`}
+        className="mt-5 h-36 rounded-2xl border border-white/10 bg-gradient-to-br from-[#12182a] to-[#1b2438] bg-cover bg-center"
         style={coverStyle}
       />
 
-      <div className="mt-6 flex flex-wrap items-center gap-3 text-xs">
+      <div className="mt-5 flex flex-wrap items-center gap-2 text-xs">
         {issue.assets?.pdf_url && issue.status === 'ready' ? (
           <a
             href={issue.assets.pdf_url}
             target="_blank"
             rel="noreferrer"
-            className="rounded-full border border-white/20 px-3 py-2 transition hover:border-white/60"
+            className="btn-ghost rounded-full px-3 py-2 text-white/80"
           >
             Download PDF
           </a>
         ) : (
-          <span className="rounded-full border border-white/10 px-3 py-2 text-white/40">PDF pending</span>
+          <span className="badge rounded-full px-3 py-2 text-white/45">PDF pending</span>
         )}
+
         <button
           type="button"
           onClick={handleToggle}
           disabled={busy || issue.status !== 'ready'}
-          className="rounded-full border border-white/20 px-3 py-2 transition hover:border-white/60 disabled:opacity-40"
+          className="btn-ghost rounded-full px-3 py-2 text-white/80 disabled:opacity-45"
         >
           {issue.is_public ? 'Make private' : 'Make public'}
         </button>
+
         {issue.is_public && (
           <button
             type="button"
             onClick={handleCopy}
-            className="rounded-full border border-white/20 px-3 py-2 transition hover:border-white/60"
+            className="btn-ghost rounded-full px-3 py-2 text-white/80"
           >
-            Copy public link
+            Copy link
           </button>
         )}
       </div>
-    </div>
+    </article>
   );
 }

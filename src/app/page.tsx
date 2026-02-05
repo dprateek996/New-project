@@ -1,124 +1,152 @@
 import Link from 'next/link';
 import { HeroInput } from '@/components/hero-input';
 
+const proofCards = [
+  {
+    title: 'Issue 014',
+    subtitle: 'Runtime Economics',
+    meta: '6 links stitched | 19 min',
+    tone: 'from-[#f4ecdd] to-[#e2d3bd] text-[#24180a]'
+  },
+  {
+    title: 'Issue 038',
+    subtitle: 'AI Reliability Notes',
+    meta: '4 links stitched | 13 min',
+    tone: 'from-[#121623] to-[#1e2437] text-[#e8e4dc]'
+  },
+  {
+    title: 'Issue 052',
+    subtitle: 'Designing With Constraints',
+    meta: '5 links stitched | 16 min',
+    tone: 'from-[#102024] to-[#193235] text-[#dce7e3]'
+  }
+];
+
 export default function HomePage() {
   return (
-    <main className="relative overflow-hidden">
+    <main className="relative overflow-hidden px-6 pb-24 pt-12">
       <div className="grid-overlay" />
       <div className="grain-overlay" />
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 pb-24 pt-16">
-        <nav className="flex flex-wrap items-center justify-between gap-4 text-sm text-white/60">
+      <div className="orbit-overlay" />
+
+      <div className="relative z-10 mx-auto max-w-6xl">
+        <nav className="reveal flex flex-wrap items-center justify-between gap-4" style={{ animationDelay: '50ms' }}>
           <div className="flex items-center gap-4">
-            <span className="mono text-xs tracking-[0.4em] text-white/40">ISSUE</span>
-            <span className="text-xs text-white/40">Premium Issue Generator</span>
+            <span className="mono text-[10px] uppercase tracking-[0.35em] text-white/50">ISSUE</span>
+            <span className="hidden text-xs text-white/50 sm:block">Curation studio for technical readers</span>
           </div>
-          <div className="flex items-center gap-4">
-            <Link href="/login" className="text-xs uppercase tracking-[0.2em] transition hover:text-white">
+          <div className="flex items-center gap-3">
+            <Link href="/login" className="btn-ghost rounded-full px-4 py-2 text-xs uppercase tracking-[0.22em] text-white/70">
               Login
             </Link>
-            <Link
-              href="/app"
-              className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] transition hover:border-white/60"
-            >
+            <Link href="/app" className="btn-primary rounded-full px-4 py-2 text-xs uppercase tracking-[0.22em]">
               Enter Studio
             </Link>
           </div>
         </nav>
 
-        <section className="mt-16 grid gap-12 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="mt-16 grid items-start gap-10 lg:grid-cols-[1.12fr_0.88fr]">
           <div>
-            <p className="mono text-xs uppercase tracking-[0.35em] text-white/40 reveal" style={{ animationDelay: '40ms' }}>
+            <p className="reveal mono text-[10px] uppercase tracking-[0.35em] text-white/45" style={{ animationDelay: '110ms' }}>
               Stop bookmarking. Start publishing.
             </p>
-            <h1
-              className="mt-6 font-serif text-4xl font-semibold leading-tight text-gradient sm:text-5xl reveal"
-              style={{ animationDelay: '120ms' }}
-            >
-              Turn threads, articles, and posts into a serene reading Issue.
+            <h1 className="reveal mt-6 font-serif text-5xl leading-[0.95] text-gradient sm:text-6xl" style={{ animationDelay: '170ms' }}>
+              Build private reading issues from the best links on the internet.
             </h1>
-            <p className="mt-6 max-w-xl text-lg text-white/70 reveal" style={{ animationDelay: '180ms' }}>
-              Issue turns noisy links into a calm, designed artifact. One paste. Two themes. A quiet publishing ritual built
-              for developers who curate.
+            <p className="reveal mt-6 max-w-2xl text-lg text-white/72" style={{ animationDelay: '240ms' }}>
+              Paste threads and articles. Issue composes them into a focused artifact with typography, table of contents, source attribution, and share controls.
             </p>
-            <div className="reveal" style={{ animationDelay: '260ms' }}>
+
+            <div className="reveal" style={{ animationDelay: '320ms' }}>
               <HeroInput />
             </div>
-            <div className="mt-8 flex flex-wrap items-center gap-3 text-xs text-white/45 reveal" style={{ animationDelay: '320ms' }}>
-              <span className="rounded-full border border-white/10 px-3 py-1">20 credits/day</span>
-              <span className="rounded-full border border-white/10 px-3 py-1">A4 PDF · TOC · Cover</span>
-              <span className="rounded-full border border-white/10 px-3 py-1">Private by default</span>
+
+            <div className="reveal mt-8 flex flex-wrap gap-3 text-xs text-white/58" style={{ animationDelay: '380ms' }}>
+              <span className="badge rounded-full px-3 py-1">Complexity score credits</span>
+              <span className="badge rounded-full px-3 py-1">Public links at MVP</span>
+              <span className="badge rounded-full px-3 py-1">Journal + Developer themes</span>
             </div>
           </div>
 
-          <div className="relative">
-            <div className="card-glass relative rounded-[32px] p-6">
-              <div className="flex items-center justify-between text-xs text-white/50">
-                <span className="mono">ISSUE PREVIEW</span>
-                <span>Journal Theme</span>
+          <div className="relative pt-3 lg:pt-9">
+            <div className="card-glass reveal relative rounded-[30px] p-6" style={{ animationDelay: '210ms' }}>
+              <div className="flex items-center justify-between text-xs text-white/58">
+                <span className="mono text-[10px] tracking-[0.26em]">LIVE COMPOSITION</span>
+                <span>Developer Theme</span>
               </div>
-              <div className="mt-6 rounded-3xl bg-paper-50 p-6 text-obsidian-950 shadow-inner">
-                <p className="text-xs uppercase tracking-[0.3em] text-obsidian-700">Curated Issue</p>
-                <h2 className="mt-4 font-serif text-2xl font-semibold">The Craft of Debugging</h2>
-                <p className="mt-4 text-sm text-obsidian-700">
-                  A stitched collection of the most important threads, releases, and essays, designed for a quiet weekend read.
-                </p>
-                <div className="mt-6 h-36 rounded-2xl border border-obsidian-800/10 bg-[linear-gradient(135deg,#f1ede5,#e8e1d5)]" />
-              </div>
-              <div className="mt-6 flex items-center justify-between text-xs text-white/40">
-                <span>Crafting: 4 links · 14 min read</span>
-                <span className="mono">A4</span>
+
+              <div className="mt-6 rounded-2xl border border-white/10 bg-[#0e1320] p-5">
+                <div className="flex items-center justify-between text-[11px] text-white/54">
+                  <span>Issue_042</span>
+                  <span className="text-[#7fd1af]">Crafting 68%</span>
+                </div>
+                <h2 className="mt-4 font-serif text-3xl leading-tight text-white">The Postgres Reliability Field Notes</h2>
+                <div className="mt-4 space-y-2 text-xs text-white/58">
+                  <p>01. Query planning in production</p>
+                  <p>02. Four incident retrospectives</p>
+                  <p>03. Indexing strategy decisions</p>
+                </div>
+                <div className="mt-6 h-[7px] overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-[#d8b282] via-[#f3cb99] to-[#86b49e]" />
+                </div>
               </div>
             </div>
-            <div className="card-glass floaty absolute -bottom-8 -left-6 hidden w-56 rounded-3xl p-4 text-xs text-white/70 md:block">
-              <p className="mono text-[10px] uppercase tracking-[0.3em] text-white/40">Notification</p>
-              <p className="mt-3">Your Issue “Infra Notes” is ready.</p>
-              <div className="mt-4 flex items-center gap-2 text-[10px] uppercase tracking-[0.25em] text-white/50">
-                <span className="h-1 w-6 rounded-full bg-accent-400/80" />
+
+            <div className="panel-muted float-slow absolute -bottom-8 -left-7 hidden w-56 rounded-2xl p-4 md:block">
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.24em] text-white/45">
+                <span>Notification</span>
+                <span>Email</span>
+              </div>
+              <p className="mt-3 text-sm text-white/80">Issue 031 is ready for download and sharing.</p>
+              <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-white/55">
+                <span className="metric-dot" />
                 Delivered
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mt-24 grid gap-6 lg:grid-cols-3">
+        <section className="mt-24 grid gap-4 md:grid-cols-3">
           {[
             {
-              title: 'Zen Input',
-              body: 'A single, quiet input. Paste links and let Issue stitch the story.'
+              label: 'Zen Input',
+              body: 'A single command surface, tuned for high intent workflows.'
             },
             {
-              title: 'The Stitcher',
-              body: 'Combine articles and threads into one coherent Issue with a crisp TOC.'
+              label: 'Stitch Engine',
+              body: 'Multiple sources merged into one structured reading issue.'
             },
             {
-              title: 'Reading Shelf',
-              body: 'A minimalist library of your published Issues, private by default.'
+              label: 'Shelf + Share',
+              body: 'Private archive by default with clean public links when needed.'
             }
           ].map((item, index) => (
-            <div
-              key={item.title}
-              className="card-glass rounded-3xl p-6 reveal"
-              style={{ animationDelay: `${360 + index * 80}ms` }}
+            <article
+              key={item.label}
+              className="card-glass reveal rounded-2xl p-5"
+              style={{ animationDelay: `${420 + index * 80}ms` }}
             >
-              <h3 className="text-lg font-semibold">{item.title}</h3>
-              <p className="mt-3 text-sm text-white/60">{item.body}</p>
-            </div>
+              <p className="mono text-[10px] uppercase tracking-[0.26em] text-white/45">{item.label}</p>
+              <p className="mt-4 text-sm text-white/73">{item.body}</p>
+            </article>
           ))}
         </section>
 
         <section className="mt-24">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-serif text-2xl font-semibold">See what an Issue looks like</h2>
-            <span className="text-xs text-white/40">Examples below the fold</span>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-serif text-3xl">Preview the output style</h2>
+            <span className="text-xs uppercase tracking-[0.2em] text-white/50">Examples</span>
           </div>
-          <div className="mt-8 grid gap-6 lg:grid-cols-3">
-            {['Systems Notes', 'AI Infrastructure', 'Design Systems'].map((title) => (
-              <div key={title} className="card-glass rounded-3xl p-6">
-                <p className="mono text-xs text-white/40">PUBLIC ISSUE</p>
-                <h3 className="mt-4 text-lg font-semibold">{title}</h3>
-                <p className="mt-3 text-sm text-white/60">Curated links, stitched into a calm, readable artifact.</p>
-                <div className="mt-6 h-28 rounded-2xl bg-obsidian-800/60" />
-              </div>
+
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            {proofCards.map((card, index) => (
+              <article key={card.title} className="group card-glass reveal rounded-3xl p-4" style={{ animationDelay: `${560 + index * 70}ms` }}>
+                <div className={`h-52 rounded-2xl bg-gradient-to-br p-5 transition duration-300 group-hover:scale-[1.01] ${card.tone}`}>
+                  <p className="mono text-[10px] uppercase tracking-[0.24em] opacity-70">{card.title}</p>
+                  <h3 className="mt-4 font-serif text-2xl leading-tight">{card.subtitle}</h3>
+                  <p className="mt-6 text-xs opacity-70">{card.meta}</p>
+                </div>
+              </article>
             ))}
           </div>
         </section>

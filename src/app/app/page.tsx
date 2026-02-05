@@ -23,14 +23,12 @@ export default async function AppPage() {
   }));
 
   return (
-    <main className="relative min-h-screen px-6 py-12">
+    <main className="relative px-6 py-12">
       <div className="grid-overlay" />
       <div className="grain-overlay" />
+      <div className="orbit-overlay" />
       <div className="relative z-10">
-        <IssueStudio
-          userEmail={userData.user.email ?? ''}
-          initialIssues={normalizedIssues as IssueRow[]}
-        />
+        <IssueStudio userEmail={userData.user.email ?? ''} initialIssues={normalizedIssues as IssueRow[]} />
       </div>
     </main>
   );
