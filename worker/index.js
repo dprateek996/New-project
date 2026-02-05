@@ -481,8 +481,11 @@ async function parseX(url) {
   }
 
   const singleTweet = await singleTweetPromise;
-  if (singleTweet) return singleTweet;
+  if (singleTweet && browserTweet) {
+    return pickRicherTweet(singleTweet, browserTweet);
+  }
   if (browserTweet) return browserTweet;
+  if (singleTweet) return singleTweet;
 
   return {
     title: 'X Thread',
@@ -519,6 +522,14 @@ async function firstTruthy(tasks) {
         });
     }
   });
+}
+
+function pickRicherTweet(primary, fallback) {
+  const primaryTextLen = stripTags(primary.content || '').replace(/\s+/g, ' ').trim().length;
+  const fallbackTextLen = stripTags(fallback.content || '').replace(/\s+/g, ' ').trim().length;
+  if (fallback.tweetCount > primary.tweetCount) return fallback;
+  if (fallbackTextLen > primaryTextLen + 20) return fallback;
+  return primary;
 }
 
 function extractXStatusId(url) {
@@ -686,6 +697,24 @@ async function parseXViaBrowser(url, { timeoutMs = 6000 } = {}) {
         timeout: Math.max(800, Math.min(2000, Math.floor(timeoutMs / 2)))
       })
       .catch(() => null);
+    // Expand truncated long-post text before collecting tweet bodies.
+    await page
+      .evaluate(() => {
+        const labels = ['show more', 'more', 'see more'];
+        const candidates = Array.from(document.querySelectorAll('article [role="button"], article span, article a'));
+        for (const node of candidates) {
+          const text = (node.textContent || '').trim().toLowerCase();
+          if (!text) continue;
+          if (labels.some((label) => text === label || text.startsWith(`${label} `))) {
+            const el = node.closest('[role="button"]') || node;
+            if (typeof el.click === 'function') {
+              el.click();
+            }
+          }
+        }
+      })
+      .catch(() => null);
+    await sleep(250);
 
     const tweets = await page.$$eval('article div[data-testid="tweetText"]', (nodes) =>
       nodes.map((node) => node.innerText)
@@ -709,6 +738,10 @@ async function parseXViaBrowser(url, { timeoutMs = 6000 } = {}) {
   } finally {
     await page.close().catch(() => {});
   }
+}
+
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function highlightCode(html, theme) {
