@@ -813,7 +813,7 @@ async function renderPdf(html) {
   const page = await browser.newPage();
   try {
     await page.setContent(html, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(80);
+    await new Promise((resolve) => setTimeout(resolve, 80));
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true
