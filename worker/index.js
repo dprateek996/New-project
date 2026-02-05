@@ -697,30 +697,69 @@ async function parseXViaBrowser(url, { timeoutMs = 6000 } = {}) {
         timeout: Math.max(800, Math.min(2000, Math.floor(timeoutMs / 2)))
       })
       .catch(() => null);
-    // Expand truncated long-post text before collecting tweet bodies.
-    await page
-      .evaluate(() => {
-        const labels = ['show more', 'more', 'see more'];
-        const candidates = Array.from(document.querySelectorAll('article [role="button"], article span, article a'));
-        for (const node of candidates) {
-          const text = (node.textContent || '').trim().toLowerCase();
-          if (!text) continue;
-          if (labels.some((label) => text === label || text.startsWith(`${label} `))) {
-            const el = node.closest('[role="button"]') || node;
-            if (typeof el.click === 'function') {
-              el.click();
+    const rootAuthor = extractXAuthor(url);
+    const rounds = Math.max(2, Math.min(8, Number(process.env.X_THREAD_SCROLL_ROUNDS ?? 5)));
+    const roundDelay = Math.max(120, Math.min(700, Number(process.env.X_THREAD_ROUND_DELAY_MS ?? 220)));
+
+    for (let i = 0; i < rounds; i += 1) {
+      // Expand long posts and thread/reply reveal controls when present.
+      await page
+        .evaluate(() => {
+          const labels = [
+            'show more',
+            'more',
+            'see more',
+            'show this thread',
+            'show replies',
+            'show more replies',
+            'continue thread'
+          ];
+          const candidates = Array.from(
+            document.querySelectorAll('article [role="button"], article span, article a, div[role="button"]')
+          );
+          for (const node of candidates) {
+            const text = (node.textContent || '').trim().toLowerCase();
+            if (!text) continue;
+            if (labels.some((label) => text === label || text.startsWith(`${label} `) || text.includes(label))) {
+              const el = node.closest('[role="button"]') || node;
+              if (typeof el.click === 'function') {
+                el.click();
+              }
             }
           }
-        }
-      })
-      .catch(() => null);
-    await sleep(250);
+          window.scrollBy(0, Math.floor(window.innerHeight * 0.9));
+        })
+        .catch(() => null);
+      await sleep(roundDelay);
+    }
 
-    const tweets = await page.$$eval('article div[data-testid="tweetText"]', (nodes) =>
-      nodes.map((node) => node.innerText)
+    const tweetRows = await page.$$eval('article', (articles) =>
+      articles
+        .map((article) => {
+          const textNode = article.querySelector('div[data-testid="tweetText"]');
+          const text = textNode ? textNode.innerText.trim() : '';
+          if (!text) return null;
+
+          const linkNode = article.querySelector('a[href*="/status/"]');
+          const href = linkNode?.getAttribute('href') || '';
+          const match = href.match(/\/([^/]+)\/status\/\d+/);
+          const author = match?.[1]?.toLowerCase() || null;
+
+          return { text, author };
+        })
+        .filter(Boolean)
     );
-    const deduped = Array.from(new Set(tweets.map((tweet) => `${tweet}`.trim()).filter(Boolean)));
-    const safeTweets = deduped.length ? deduped.slice(0, 8) : ['Unable to extract tweets.'];
+
+    let picked = tweetRows.map((row) => row.text);
+    if (rootAuthor) {
+      const byAuthor = tweetRows.filter((row) => row.author === rootAuthor).map((row) => row.text);
+      if (byAuthor.length) {
+        picked = byAuthor;
+      }
+    }
+
+    const deduped = Array.from(new Set(picked.map((tweet) => `${tweet}`.trim()).filter(Boolean)));
+    const safeTweets = deduped.length ? deduped.slice(0, 12) : ['Unable to extract tweets.'];
     const tweetHtml = safeTweets
       .map((tweet) => `<blockquote class="tweet">${escapeHtml(tweet)}</blockquote>`)
       .join('');
@@ -737,6 +776,17 @@ async function parseXViaBrowser(url, { timeoutMs = 6000 } = {}) {
     };
   } finally {
     await page.close().catch(() => {});
+  }
+}
+
+function extractXAuthor(url) {
+  try {
+    const parsed = new URL(url);
+    const segment = parsed.pathname.split('/').filter(Boolean)[0];
+    if (!segment) return null;
+    return segment.toLowerCase();
+  } catch {
+    return null;
   }
 }
 
