@@ -113,13 +113,14 @@ app.post('/jobs/issue', async (req, res) => {
 });
 
 async function processIssue(issueId) {
-  const { data: issue } = await supabase
+  const { data: issueRow } = await supabase
     .from('issues')
     .select('id,user_id,title,theme,status')
     .eq('id', issueId)
     .single();
 
-  if (!issue) throw new Error('Issue not found');
+  if (!issueRow) throw new Error('Issue not found');
+  const issue = { ...issueRow };
 
   const { error: processingError } = await supabase
     .from('issues')
@@ -218,6 +219,16 @@ async function processIssue(issueId) {
     },
     { words: 0, images: 0, code: 0, tweets: 0 }
   );
+
+  const resolvedTitle = resolveIssueTitle(issue.title, links, chapters);
+  if (resolvedTitle !== issue.title) {
+    const { error: titleError } = await supabase
+      .from('issues')
+      .update({ title: resolvedTitle })
+      .eq('id', issueId);
+    if (titleError) throw new Error(`Unable to normalize title: ${titleError.message}`);
+    issue.title = resolvedTitle;
+  }
 
   const cappedImages = Math.min(metrics.images, 12);
   const cappedCode = Math.min(metrics.code, 25);
@@ -577,6 +588,75 @@ async function renderIssueHtml(issue, chapters) {
     <footer>Personal use only. Sources are attributed to the original authors.</footer>
   </body>
 </html>`;
+}
+
+function resolveIssueTitle(currentTitle, links, chapters) {
+  const fallbackFromLink = deriveTitleFromUrl(links?.[0]?.url);
+  const chapterTitle = chapters?.[0]?.title?.trim();
+
+  if (currentTitle && !isLikelyUrl(currentTitle) && !isGenericIssueTitle(currentTitle)) {
+    return currentTitle;
+  }
+
+  if (chapterTitle && !isGenericChapterTitle(chapterTitle)) {
+    return `Issue — ${truncate(chapterTitle, 78)}`;
+  }
+
+  if (fallbackFromLink) {
+    return fallbackFromLink;
+  }
+
+  return 'New Issue';
+}
+
+function deriveTitleFromUrl(rawUrl) {
+  if (!rawUrl) return null;
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.replace('www.', '');
+    if (host === 'x.com' || host === 'twitter.com') {
+      const username = parsed.pathname.split('/').filter(Boolean)[0];
+      if (username && username !== 'i' && username !== 'home' && username !== 'explore') {
+        return `Issue — @${username} thread`;
+      }
+      return 'Issue — X thread';
+    }
+    return `Issue — ${host}`;
+  } catch {
+    return null;
+  }
+}
+
+function isLikelyUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isGenericIssueTitle(value) {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'new issue') return true;
+  if (normalized === 'issue') return true;
+  if (normalized === 'issue — x thread') return true;
+  return /^issue\s+[—-]\s+(x\.com|twitter\.com)$/i.test(normalized);
+}
+
+function isGenericChapterTitle(value) {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === 'x thread' ||
+    normalized === 'link unavailable' ||
+    normalized === 'blocked url' ||
+    normalized === 'unable to parse this article.'
+  );
+}
+
+function truncate(value, length) {
+  if (value.length <= length) return value;
+  return `${value.slice(0, Math.max(0, length - 1)).trimEnd()}…`;
 }
 
 async function renderPdf(html) {

@@ -68,7 +68,7 @@ export async function POST(request: Request) {
         .eq('id', auth.user.id);
     }
 
-    const title = payload.title?.trim() || deriveTitle(cleanedUrls[0]);
+    const title = normalizeInputTitle(payload.title) ?? deriveTitle(cleanedUrls[0]);
 
     const { data: issue, error: issueError } = await admin
       .from('issues')
@@ -153,8 +153,33 @@ export async function POST(request: Request) {
 function deriveTitle(url: string) {
   try {
     const parsed = new URL(url);
-    return `Issue — ${parsed.hostname.replace('www.', '')}`;
+    const host = parsed.hostname.replace('www.', '');
+    if (detectSourceType(url) === 'x') {
+      const username = parsed.pathname.split('/').filter(Boolean)[0];
+      if (username && username !== 'i' && username !== 'home' && username !== 'explore') {
+        return `Issue — @${username} thread`;
+      }
+      return 'Issue — X thread';
+    }
+    return `Issue — ${host}`;
   } catch {
     return 'New Issue';
+  }
+}
+
+function normalizeInputTitle(value?: string) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (isLikelyUrl(trimmed)) return null;
+  return trimmed;
+}
+
+function isLikelyUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
   }
 }
