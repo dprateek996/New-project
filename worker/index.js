@@ -459,27 +459,30 @@ async function parseX(url) {
   const tweetId = extractXStatusId(url);
   const includeThread = process.env.X_INCLUDE_THREAD !== 'false';
   const browserTimeout = Math.max(2500, Number(process.env.X_BROWSER_TIMEOUT_MS ?? 6000));
-
-  let singleTweet = null;
-  if (tweetId) {
-    singleTweet = await parseXViaSyndication(tweetId, url);
-  }
-  if (!singleTweet) {
-    singleTweet = await parseXViaMetadata(url);
-  }
+  const singleTweetPromise = firstTruthy(
+    [
+      tweetId ? () => parseXViaSyndication(tweetId, url) : null,
+      () => parseXViaMetadata(url),
+      () => parseXViaOEmbed(url)
+    ].filter(Boolean)
+  );
+  let browserTweet = null;
 
   if (includeThread) {
     try {
       const threaded = await parseXViaBrowser(url, { timeoutMs: browserTimeout });
-      if (!singleTweet || threaded.tweetCount > 1) {
+      if (threaded.tweetCount > 1) {
         return threaded;
       }
+      browserTweet = threaded;
     } catch {
       // fall through to fast single tweet if thread expansion fails
     }
   }
 
+  const singleTweet = await singleTweetPromise;
   if (singleTweet) return singleTweet;
+  if (browserTweet) return browserTweet;
 
   return {
     title: 'X Thread',
@@ -490,6 +493,32 @@ async function parseX(url) {
     tweetCount: 0,
     sourceUrl: url
   };
+}
+
+async function firstTruthy(tasks) {
+  if (!tasks.length) return null;
+  return new Promise((resolve) => {
+    let pending = tasks.length;
+    let resolved = false;
+
+    for (const task of tasks) {
+      Promise.resolve()
+        .then(() => task())
+        .then((value) => {
+          if (!resolved && value) {
+            resolved = true;
+            resolve(value);
+          }
+        })
+        .catch(() => null)
+        .finally(() => {
+          pending -= 1;
+          if (!resolved && pending === 0) {
+            resolve(null);
+          }
+        });
+    }
+  });
 }
 
 function extractXStatusId(url) {
@@ -562,6 +591,46 @@ async function parseXViaMetadata(url) {
 
     return {
       title: normalizeXTitle(decodeHtmlEntities(titleRaw || 'X Thread')),
+      content: tweetHtml,
+      wordCount,
+      imageCount: 0,
+      codeCount: 0,
+      tweetCount: 1,
+      sourceUrl: url
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function parseXViaOEmbed(url) {
+  try {
+    const endpoint = `https://publish.twitter.com/oembed?omit_script=true&url=${encodeURIComponent(url)}`;
+    const response = await fetchWithTimeout(endpoint, {
+      timeoutMs: 4000,
+      headers: {
+        'User-Agent': 'IssueBot/1.0',
+        Accept: 'application/json'
+      }
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const embedHtml = `${payload?.html ?? ''}`;
+    if (!embedHtml) return null;
+
+    const dom = new JSDOM(embedHtml);
+    const text = dom.window.document.querySelector('blockquote p')?.textContent?.trim();
+    if (!text) return null;
+
+    const safeTweets = [text];
+    const tweetHtml = safeTweets
+      .map((tweet) => `<blockquote class="tweet">${escapeHtml(tweet)}</blockquote>`)
+      .join('');
+    const wordCount = safeTweets.join(' ').split(/\s+/).filter(Boolean).length;
+    const author = `${payload?.author_name ?? ''}`.trim();
+
+    return {
+      title: author ? `@${author}` : 'X Thread',
       content: tweetHtml,
       wordCount,
       imageCount: 0,
