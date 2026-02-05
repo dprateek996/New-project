@@ -464,6 +464,9 @@ async function parseX(url) {
   if (tweetId) {
     singleTweet = await parseXViaSyndication(tweetId, url);
   }
+  if (!singleTweet) {
+    singleTweet = await parseXViaMetadata(url);
+  }
 
   if (includeThread) {
     try {
@@ -480,7 +483,7 @@ async function parseX(url) {
 
   return {
     title: 'X Thread',
-    content: '<p>Unable to extract tweet text quickly. Open the source link in the Issue.</p>',
+    content: `<p>We could not extract this post text. Source: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a></p>`,
     wordCount: 0,
     imageCount: 0,
     codeCount: 0,
@@ -532,6 +535,76 @@ async function parseXViaSyndication(tweetId, sourceUrl) {
   } catch {
     return null;
   }
+}
+
+async function parseXViaMetadata(url) {
+  try {
+    const response = await fetchWithTimeout(url, {
+      timeoutMs: 4000,
+      headers: {
+        'User-Agent': 'IssueBot/1.0',
+        Accept: 'text/html'
+      }
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+
+    const descriptionRaw = extractMetaContent(html, 'og:description') || extractMetaContent(html, 'twitter:description');
+    const titleRaw = extractMetaContent(html, 'og:title') || extractMetaContent(html, 'twitter:title');
+    const description = decodeHtmlEntities((descriptionRaw || '').trim());
+    if (!description) return null;
+
+    const safeTweets = [description];
+    const tweetHtml = safeTweets
+      .map((tweet) => `<blockquote class="tweet">${escapeHtml(tweet)}</blockquote>`)
+      .join('');
+    const wordCount = safeTweets.join(' ').split(/\s+/).filter(Boolean).length;
+
+    return {
+      title: normalizeXTitle(decodeHtmlEntities(titleRaw || 'X Thread')),
+      content: tweetHtml,
+      wordCount,
+      imageCount: 0,
+      codeCount: 0,
+      tweetCount: 1,
+      sourceUrl: url
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractMetaContent(html, key) {
+  const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const byProperty = new RegExp(
+    `<meta[^>]+property=["']${esc}["'][^>]+content=["']([^"']+)["'][^>]*>`,
+    'i'
+  );
+  const byName = new RegExp(
+    `<meta[^>]+name=["']${esc}["'][^>]+content=["']([^"']+)["'][^>]*>`,
+    'i'
+  );
+  return byProperty.exec(html)?.[1] || byName.exec(html)?.[1] || null;
+}
+
+function normalizeXTitle(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return 'X Thread';
+  return trimmed
+    .replace(/\s+on\s+X\s*$/i, '')
+    .replace(/\s+\/\s+X\s*$/i, '')
+    .trim();
+}
+
+function decodeHtmlEntities(value) {
+  if (!value || !value.includes('&')) return value;
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
 }
 
 async function parseXViaBrowser(url, { timeoutMs = 6000 } = {}) {
